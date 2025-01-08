@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h2>Add Consumption Data</h2>
+        </div>
+        <div class="card-body">
+            <form id="consumptionForm">
+                <div class="form-group mb-3">
+                    <label for="vehicleSelect">Select Vehicle</label>
+                    <select class="form-control" id="vehicleSelect">
+                        <option value="">Choose a vehicle...</option>
+                    </select>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label for="energyUsed">Energy Used (kWh)</label>
+                    <input type="number" class="form-control" id="energyUsed" step="0.1" min="0">
+                </div>
+
+                <div class="form-group mb-3">
+                    <label for="distance">Distance Traveled (km)</label>
+                    <input type="number" class="form-control" id="distance" step="0.1" min="0">
+                </div>
+
+                <button type="submit" class="btn btn-primary">Add Consumption Data</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Recent Entries Table -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h3>Recent Entries</h3>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Vehicle</th>
+                            <th>Energy Used (kWh)</th>
+                            <th>Distance (km)</th>
+                            <th>Cost (₹)</th>
+                            <th>Efficiency (kWh/km)</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentEntries">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast for notifications -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <strong class="me-auto">Notification</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load vehicles
+    fetch('/api/vehicles')
+        .then(response => response.json())
+        .then(vehicles => {
+            const vehicleSelect = document.getElementById('vehicleSelect');
+            vehicles.forEach(vehicle => {
+                const option = document.createElement('option');
+                option.value = vehicle.id;
+                option.textContent = `${vehicle.vehicle_name} (${vehicle.vehicle_number})`;
+                vehicleSelect.appendChild(option);
+            });
+        });
+
+    // Load recent entries
+    loadRecentEntries();
+
+    // Handle form submission
+    const form=document.getElementById('consumptionForm');
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+                // Perform validation
+                if (!validateForm()) {
+            showToast('Please correct the highlighted errors before submitting.', 'error');
+            return;
+        }
+        const data = {
+            vehicle_id: parseInt(document.getElementById('vehicleSelect').value),
+            energy_used: parseFloat(document.getElementById('energyUsed').value),
+            distance: parseFloat(document.getElementById('distance').value)
+        };
+
+        fetch('/api/consumption/add', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.status === 'success') {
+                showToast('Data added successfully!', 'success');
+                document.getElementById('consumptionForm').reset();
+                loadRecentEntries();
+            } else {
+                showToast(result.error || 'Error adding data', 'error');
+            }
+        })
+        .catch(error => {
+            showToast('Error: ' + error, 'error');
+        });
+    });
+});
+
+// Form validation function
+function validateForm() {
+    let isValid = true;
+
+    const vehicleSelect = document.getElementById('vehicleSelect');
+    const energyUsed = document.getElementById('energyUsed');
+    const distance = document.getElementById('distance');
+
+    // Reset validation messages
+    vehicleSelect.classList.remove('is-invalid');
+    energyUsed.classList.remove('is-invalid');
+    distance.classList.remove('is-invalid');
+
+    // Validate vehicle selection
+    if (!vehicleSelect.value) {
+        vehicleSelect.classList.add('is-invalid');
+        isValid = false;
+    }
+
+    // Validate energy used
+    if (!energyUsed.value || parseFloat(energyUsed.value) <= 0) {
+        energyUsed.classList.add('is-invalid');
+        isValid = false;
+    }
+
+    // Validate distance
+    if (!distance.value || parseFloat(distance.value) <= 0) {
+        distance.classList.add('is-invalid');
+        isValid = false;
+    }
+
+    return isValid;
+}
+
+
+function loadRecentEntries() {
+    const vehicleId = document.getElementById('vehicleSelect').value;
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+
+    fetch(`/api/consumption/vehicle/${vehicleId || 'all'}`)
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('recentEntries');
+            tbody.innerHTML = '';
+
+            data.forEach(entry => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${entry.vehicle_name || ''}</td>
+                    <td>${entry.energy_used.toFixed(2)}</td>
+                    <td>${entry.distance.toFixed(2)}</td>
+                    <td>₹${entry.cost.toFixed(2)}</td>
+                    <td>${entry.efficiency.toFixed(2)}</td>
+                    <td>${new Date(entry.timestamp).toLocaleString()}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        });
+}
+
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    const toastBody = toast.querySelector('.toast-body');
+    toastBody.textContent = message;
+    toastBody.className = 'toast-body ' + (type === 'error' ? 'bg-danger text-white' : 'bg-success text-white');
+    const bsToast = new bootstrap.Toast(toast);
+    bsToast.show();
+}
+</script>
+{% endblock %}
